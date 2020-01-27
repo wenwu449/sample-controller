@@ -1,0 +1,7 @@
+apiVersion: crdapp.k8s.io/v1alpha1
+kind: Crdapp
+metadata:
+  name: sampleapp
+spec:
+  type: sampleapp
+  version: v20200120

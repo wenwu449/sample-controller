@@ -27,8 +27,8 @@ import (
 	// Uncomment the following line to load the gcp plugin (only required to authenticate against GKE clusters).
 	// _ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 
-	clientset "k8s.io/sample-controller/pkg/generated/clientset/versioned"
-	informers "k8s.io/sample-controller/pkg/generated/informers/externalversions"
+	crdappclientset "k8s.io/sample-controller/pkg/generated_crdapp/clientset/versioned"
+	crdappinformers "k8s.io/sample-controller/pkg/generated_crdapp/informers/externalversions"
 	"k8s.io/sample-controller/pkg/signals"
 )
 
@@ -54,25 +54,39 @@ func main() {
 		klog.Fatalf("Error building kubernetes clientset: %s", err.Error())
 	}
 
-	exampleClient, err := clientset.NewForConfig(cfg)
+	crdappClient, err := crdappclientset.NewForConfig(cfg)
 	if err != nil {
-		klog.Fatalf("Error building example clientset: %s", err.Error())
+		klog.Fatalf("Error building crdapp clientset: %s", err.Error())
 	}
 
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
-	exampleInformerFactory := informers.NewSharedInformerFactory(exampleClient, time.Second*30)
+	crdappInformerFactory := crdappinformers.NewSharedInformerFactory(crdappClient, time.Second*30)
 
-	controller := NewController(kubeClient, exampleClient,
+	controller := NewCrdAppController(kubeClient, crdappClient,
+		kubeInformerFactory.Core().V1().Namespaces(),
 		kubeInformerFactory.Apps().V1().Deployments(),
-		exampleInformerFactory.Samplecontroller().V1alpha1().Foos())
+		kubeInformerFactory.Core().V1().Secrets(),
+		kubeInformerFactory.Rbac().V1().ClusterRoles(),
+		kubeInformerFactory.Rbac().V1().ClusterRoleBindings(),
+		kubeInformerFactory.Core().V1().ServiceAccounts(),
+		crdappInformerFactory.Crdapp().V1alpha1().Crdapps())
+
+	underlayController := NewUnderlayController(kubeClient, crdappClient,
+		crdappInformerFactory.Crdapp().V1alpha1().Underlays())
 
 	// notice that there is no need to run Start methods in a separate goroutine. (i.e. go kubeInformerFactory.Start(stopCh)
 	// Start method is non-blocking and runs all registered informers in a dedicated goroutine.
 	kubeInformerFactory.Start(stopCh)
-	exampleInformerFactory.Start(stopCh)
+	crdappInformerFactory.Start(stopCh)
+
+	go func() {
+		if err = underlayController.Run(2, stopCh); err != nil {
+			klog.Fatalf("Error running underlay controller: %s", err.Error())
+		}
+	}()
 
 	if err = controller.Run(2, stopCh); err != nil {
-		klog.Fatalf("Error running controller: %s", err.Error())
+		klog.Fatalf("Error running app controller: %s", err.Error())
 	}
 }
 
